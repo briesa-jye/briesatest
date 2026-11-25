@@ -1,0 +1,19 @@
+{
+  "name": "briesa-verify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Verify what AI agents actually did: run them against stateful digital twins of business software and diff the state.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "demo": "node src/cli.ts",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.10",
+    "typescript": "^7.0.2"
+  }
+}
