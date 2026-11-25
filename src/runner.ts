@@ -31,7 +31,7 @@ export async function runScenario<State, Tools>(
   let report: AgentReport | undefined;
   let crashed: string | undefined;
   try {
-    report = await agent({ task: scenario.task, tools: twin.tools });
+    report = await agent({ task: scenario.task, tools: twin.tools, toolSpecs: twin.toolSpecs });
   } catch (error) {
     crashed = error instanceof Error ? error.message : String(error);
   }

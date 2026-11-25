@@ -1,5 +1,5 @@
-import { TwinError } from "../twin.ts";
-import type { CallRecord, Twin } from "../twin.ts";
+import { TwinError, createInstrumenter, requireNumber, requireString } from "../twin.ts";
+import type { CallRecord, ToolSpec, Twin } from "../twin.ts";
 
 export interface Customer {
   id: string;
@@ -121,29 +121,9 @@ export function createHelpdeskTwin(
     return found;
   };
 
-  /** Record every call, enforce the rate limit, and hand back copies only. */
-  const instrument = <A extends unknown[], R>(tool: string, fn: (...args: A) => R) => {
-    return (...args: A): R => {
-      if (calls.length >= RATE_LIMIT) {
-        calls.push({ tool, args, ok: false, error: "429 rate limit exceeded" });
-        throw new TwinError(429, "rate limit exceeded");
-      }
-      tick += 1;
-      try {
-        const result = structuredClone(fn(...args));
-        calls.push({ tool, args, ok: true });
-        return result;
-      } catch (error) {
-        calls.push({
-          tool,
-          args,
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    };
-  };
+  const instrument = createInstrumenter(calls, RATE_LIMIT, () => {
+    tick += 1;
+  });
 
   const tools: HelpdeskTools = {
     getTicket: instrument("getTicket", (id: string) => ticket(id)),
@@ -197,5 +177,64 @@ export function createHelpdeskTwin(
     }),
   };
 
-  return { tools, snapshot: () => structuredClone(state), calls };
+  const idSchema = (description: string) => ({
+    type: "object" as const,
+    properties: { id: { type: "string", description } },
+    required: ["id"],
+  });
+
+  const toolSpecs: ToolSpec[] = [
+    {
+      name: "get_ticket",
+      description: "Fetch a support ticket by id (e.g. T-1).",
+      inputSchema: idSchema("Ticket id"),
+      run: (i) => tools.getTicket(requireString(i, "id")),
+    },
+    {
+      name: "get_order",
+      description: "Fetch an order by id (e.g. O-1), including its total and amount already refunded.",
+      inputSchema: idSchema("Order id"),
+      run: (i) => tools.getOrder(requireString(i, "id")),
+    },
+    {
+      name: "list_open_tickets",
+      description: "List every ticket that is not closed.",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      run: () => tools.listOpenTickets(),
+    },
+    {
+      name: "reply_to_ticket",
+      description: "Email the customer on a ticket. Fails if the ticket is closed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ticket_id: { type: "string", description: "Ticket id" },
+          body: { type: "string", description: "Message to send to the customer" },
+        },
+        required: ["ticket_id", "body"],
+      },
+      run: (i) => tools.replyToTicket(requireString(i, "ticket_id"), requireString(i, "body")),
+    },
+    {
+      name: "close_ticket",
+      description: "Mark a ticket as closed.",
+      inputSchema: idSchema("Ticket id"),
+      run: (i) => tools.closeTicket(requireString(i, "id")),
+    },
+    {
+      name: "issue_refund",
+      description: "Refund part or all of an order. The amount cannot exceed what is still refundable.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          order_id: { type: "string", description: "Order id" },
+          amount: { type: "number", description: "Amount to refund, in dollars" },
+        },
+        required: ["order_id", "amount"],
+      },
+      run: (i) => tools.issueRefund(requireString(i, "order_id"), requireNumber(i, "amount")),
+    },
+  ];
+
+  return { tools, toolSpecs, snapshot: () => structuredClone(state), calls };
 }
